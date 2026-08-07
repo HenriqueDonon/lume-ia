@@ -234,7 +234,29 @@ function localAnswer(q){
   }
   return null;
 }
-async function onlineAnswer(q){try{const s=await fetch('https://pt.wikipedia.org/w/api.php?action=opensearch&limit=1&format=json&origin=*&search='+encodeURIComponent(q));const t=(await s.json())[1][0];if(!t)return null;const r=await fetch('https://pt.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(t));const d=await r.json();if(!d.extract||d.type==='disambiguation')return null;addKB(q,d.extract,'wikipedia');return{a:d.extract,src:'internet (Wikipedia) - gravado para uso offline'}}catch(e){return null}}
+function cleanQuery(q){return q.toLowerCase().replace(/^(me\s+)?(fale|fala|conte|conta|explique|explica|diga|fale-me)\s+(sobre|me sobre|de|do|da|dos|das)?\s*/,'').replace(/^o que (e|sao|significa)\s+/,'').replace(/^quem (e|foi|sao)\s+/,'').replace(/^qual (e|a|o)?\s*/,'').replace(/\?+$/,'').trim()||q;}
+async function wikiSummary(title,lang){try{const r=await fetch('https://'+lang+'.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(title));const d=await r.json();if(d&&d.extract&&d.type!=='disambiguation')return{fonte:'Wikipedia',titulo:d.title,texto:d.extract};}catch(e){}return null;}
+async function wikiSearch(q,lang){try{const r=await fetch('https://'+lang+'.wikipedia.org/w/api.php?action=query&list=search&srlimit=3&format=json&origin=*&srsearch='+encodeURIComponent(q));const d=await r.json();const hits=(d.query&&d.query.search)||[];const out=[];for(let i=0;i<Math.min(2,hits.length);i++){const s=await wikiSummary(hits[i].title,lang);if(s)out.push(s);}return out;}catch(e){return[];}}
+async function ddgAnswer(q){try{const r=await fetch('https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q='+encodeURIComponent(q));const d=await r.json();const t=d.AbstractText||d.Answer||(d.RelatedTopics&&d.RelatedTopics[0]&&d.RelatedTopics[0].Text)||'';if(t)return{fonte:'DuckDuckGo',titulo:d.Heading||q,texto:t};}catch(e){}return null;}
+async function wiktionary(term){try{const r=await fetch('https://pt.wiktionary.org/api/rest_v1/page/summary/'+encodeURIComponent(term));const d=await r.json();if(d&&d.extract)return{fonte:'Wikcionario',titulo:d.title,texto:d.extract};}catch(e){}return null;}
+async function multiSearch(q){
+  const termo=cleanQuery(q);
+  const jobs=[wikiSearch(termo,'pt'),ddgAnswer(termo)];
+  if(termo.split(' ').length<=2)jobs.push(wiktionary(termo));
+  let res=(await Promise.all(jobs)).flat().filter(Boolean);
+  if(res.length===0){res=(await wikiSearch(termo,'en')).filter(Boolean);}
+  // remove duplicados por titulo
+  const seen=new Set();res=res.filter(r=>{const k=(r.titulo||'').toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});
+  return res.slice(0,4);
+}
+async function onlineAnswer(q){
+  const res=await multiSearch(q);
+  if(!res.length)return null;
+  const melhor=res[0];
+  const fontes=[...new Set(res.map(r=>r.fonte))].join(', ');
+  addKB(q,melhor.texto,'web');
+  return{a:melhor.texto,src:'internet ('+fontes+') - '+res.length+' fonte(s), gravado para uso offline'};
+}
 const PERSONAL=/\b(me chame|meu nome|minha idade|eu prefiro|eu moro|eu trabalho|eu sou o|eu sou a|lembre que eu|lembre se|anote que eu)\b/i;function addKB(q,a,o){if(CLOUD){const priv=(o==='manual'&&PERSONAL.test(q));const rec={q,a,o:o||'manual',t:Date.now()};if(priv){db.collection('users').doc(uid).collection('memory').add(rec);}else{db.collection('knowledge').add(rec);}return;}KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();graph.rebuild()}
 function delKB(id){if(CLOUD){if(PRIV.find(e=>e.id===id)){db.collection('users').doc(uid).collection('memory').doc(id).delete();}else if(GLOBAL.find(e=>e.id===id)){db.collection('knowledge').doc(id).delete();}return;}KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();graph.rebuild()}
 function renderKB(){const l=document.getElementById('klist');if(!l)return;l.innerHTML='';const LIST=CLOUD?[...PRIV,...GLOBAL]:KB;LIST.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';d.innerHTML='<span title="'+e.a.replace(/"/g,'&quot;')+'">'+(e.o==='wikipedia'?'\uD83C\uDF10 ':(PRIV&&PRIV.find(p=>p.id===e.id)?'\uD83D\uDD12 ':'\uD83E\uDDE0 '))+e.q+'</span>';const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=(CLOUD?(PRIV.length+GLOBAL.length):KB.length)}
@@ -525,8 +547,10 @@ async function loadLLM(k){
   }
 }
 async function llmStream(q,el){
-  const ctx=topKB(q,3).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
-  const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Se a base de conhecimento abaixo tiver a resposta, use-a. Se nao souber, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
+  let ctx=topKB(q,3).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
+  const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|fale sobre|fale de|explique|explica|defina|para que serve)\b/i.test(norm(q));
+  if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');}}catch(_){}}
+  const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Use as fontes e a base abaixo para responder de forma completa e acertiva, combinando as informacoes. Se as fontes divergirem, use a mais consistente. Se nada responder, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
   const msgs=[{role:'system',content:sys},{role:'user',content:q}];
   const tx=el.querySelector('.txt');
   function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';t.innerHTML='&#9672; IA avancada (offline)';b.appendChild(t);}
