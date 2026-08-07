@@ -82,6 +82,9 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 </style>
 </head>
 <body>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <canvas id="brain"></canvas>
 <header>
   <div class="core"></div>
@@ -110,6 +113,7 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
   <div class="kstat">MEMORIA NEURAL &middot; <b id="nn">0</b> nos &middot; <b id="ns">0</b> sinapses</div>
   <div class="klist" id="klist"></div>
   <div class="actions">
+    <button onclick="importPack()">&#11015; Importar base inicial</button>
     <button onclick="backup()">&#8595; Backup</button>
     <button onclick="document.getElementById('restore').click()">&#8593; Restaurar</button>
     <input type="file" id="restore" accept=".json" style="display:none">
@@ -119,6 +123,41 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 let mem={};
 const store={get(k){try{return JSON.parse(localStorage.getItem(k))||null}catch(e){return mem[k]||null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){mem[k]=v}}};
 let KB=store.get('lume_kb')||[];
+
+/* ===== CONFIG FIREBASE — cole os dados do seu projeto aqui ===== */
+const FB={
+  apiKey:"AIzaSyChep0lglextqrpE-8RT-wJaqhg4__7V_w",
+  authDomain:"lume-ia-d1d58.firebaseapp.com",
+  projectId:"lume-ia-d1d58",
+  storageBucket:"lume-ia-d1d58.firebasestorage.app",
+  messagingSenderId:"21848567116",
+  appId:"1:21848567116:web:23d1f5cabdc077f47433e9"
+};
+let db=null,uid=null,CLOUD=false;
+let GLOBAL=[],PRIV=[];            // memoria da nuvem: global + privada
+function allKB(){return CLOUD?[...PRIV,...GLOBAL,...SEED_ARR()]:KB}
+function SEED_ARR(){return (store.get('lume_kb')||[])}
+
+async function initCloud(){
+  if(FB.apiKey.includes("COLE"))return; // sem config -> modo local
+  try{
+    firebase.initializeApp(FB);
+    db=firebase.firestore();
+    try{await db.enablePersistence({synchronizeTabs:true})}catch(e){}
+    const c=await firebase.auth().signInAnonymously();
+    uid=c.user.uid;CLOUD=true;
+    // sincroniza base comum em tempo real (funciona offline via cache)
+    db.collection('knowledge').onSnapshot(snap=>{
+      GLOBAL=snap.docs.map(d=>({id:d.id,...d.data()}));renderKB();graph.rebuild();
+    });
+    // sincroniza memoria privada deste usuario
+    db.collection('users').doc(uid).collection('memory').onSnapshot(snap=>{
+      PRIV=snap.docs.map(d=>({id:d.id,...d.data()}));renderKB();graph.rebuild();
+    });
+    bubble('Conectado a nuvem. Base comum + sua memoria privada sincronizadas. Funciona offline pelo cache.','ia','firestore');
+  }catch(e){CLOUD=false}
+}
+
 
 const SEED=[
  {q:"ola oi eae salve",a:"Ola! Tudo bem? Em que posso te ajudar?"},
@@ -152,11 +191,254 @@ seedKB();
 const STOP=new Set('a o e de da do em um uma que com por para as os na no se ao sao foi ser tem como mais ou sua seu isso este esta qual quais onde quando porque quem sobre'.split(' '));
 const tok=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>2&&!STOP.has(w));
 function score(qT,e){const eT=new Set([...tok(e.q),...tok(e.a).slice(0,30)]);let h=0;qT.forEach(t=>{if(eT.has(t))h++});return qT.length?h/qT.length:0}
-const GREET=/\b(ola|oi|oie|eae|salve|bom dia|boa tarde|boa noite|tchau|adeus|obrigad|valeu|sim|nao|ok)\b/i;function localAnswer(q){const qT=tok(q);let b=null,bs=0;KB.forEach(e=>{const s=score(qT,e);if(s>bs){bs=s;b=e}});if(bs>=0.34)return{a:b.a,src:'memoria local &middot; confianca '+Math.round(bs*100)+'%'};if(GREET.test(q)){const qn=q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');let gb=null,gs=0;KB.forEach(e=>{const ew=e.q.split(' ');let h=0;ew.forEach(w=>{if(w.length>1&&qn.includes(w))h++});const sc=h/Math.max(ew.length,1);if(sc>gs){gs=sc;gb=e}});if(gs>0)return{a:gb.a,src:'memoria local &middot; conversa'}}return null}
+const GREET=/\b(ola|oi|oie|eae|salve|bom dia|boa tarde|boa noite|tchau|adeus|obrigad|valeu|sim|nao|ok)\b/i;
+function localAnswer(q){
+  const SRC=CLOUD?[...PRIV,...GLOBAL,...KB]:KB;
+  const qT=tok(q);let b=null,bs=0;
+  SRC.forEach(e=>{const s=score(qT,e);if(s>bs){bs=s;b=e}});
+  if(bs>=0.34)return{a:b.a,src:'memoria - confianca '+Math.round(bs*100)+'%'};
+  if(GREET.test(q)){
+    const qn=q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    let gb=null,gs=0;
+    SRC.forEach(e=>{const ew=e.q.split(' ');let h=0;ew.forEach(w=>{if(w.length>1&&qn.includes(w))h++});const sc=h/Math.max(ew.length,1);if(sc>gs){gs=sc;gb=e}});
+    if(gs>0)return{a:gb.a,src:'memoria - conversa'};
+  }
+  return null;
+}
 async function onlineAnswer(q){try{const s=await fetch('https://pt.wikipedia.org/w/api.php?action=opensearch&limit=1&format=json&origin=*&search='+encodeURIComponent(q));const t=(await s.json())[1][0];if(!t)return null;const r=await fetch('https://pt.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(t));const d=await r.json();if(!d.extract)return null;addKB(q,d.extract,'wikipedia');return{a:d.extract,src:'internet (Wikipedia) - gravado para uso offline'}}catch(e){return null}}
-function addKB(q,a,o){KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();graph.rebuild()}
-function delKB(id){KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();graph.rebuild()}
-function renderKB(){const l=document.getElementById('klist');l.innerHTML='';KB.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';d.innerHTML='<span title="'+e.a.replace(/"/g,'&quot;')+'">'+(e.o==='wikipedia'?'\uD83C\uDF10 ':'\uD83E\uDDE0 ')+e.q+'</span>';const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=KB.length}
+const PERSONAL=/\b(me chame|meu nome|minha idade|eu prefiro|eu moro|eu trabalho|eu sou o|eu sou a|lembre que eu|lembre se|anote que eu)\b/i;function addKB(q,a,o){if(CLOUD){const priv=(o==='manual'&&PERSONAL.test(q));const rec={q,a,o:o||'manual',t:Date.now()};if(priv){db.collection('users').doc(uid).collection('memory').add(rec);}else{db.collection('knowledge').add(rec);}return;}KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();graph.rebuild()}
+function delKB(id){if(CLOUD){if(PRIV.find(e=>e.id===id)){db.collection('users').doc(uid).collection('memory').doc(id).delete();}else if(GLOBAL.find(e=>e.id===id)){db.collection('knowledge').doc(id).delete();}return;}KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();graph.rebuild()}
+function renderKB(){const l=document.getElementById('klist');if(!l)return;l.innerHTML='';const LIST=CLOUD?[...PRIV,...GLOBAL]:KB;LIST.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';d.innerHTML='<span title="'+e.a.replace(/"/g,'&quot;')+'">'+(e.o==='wikipedia'?'\uD83C\uDF10 ':(PRIV&&PRIV.find(p=>p.id===e.id)?'\uD83D\uDD12 ':'\uD83E\uDDE0 '))+e.q+'</span>';const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=(CLOUD?(PRIV.length+GLOBAL.length):KB.length)}
+
+/* ===== PACOTE DE BASE INICIAL (importavel para todos) ===== */
+const SEED_PACK=[
+ {q:"ola oi eae salve opa",a:"Ola! Tudo bem? Em que posso ajudar?"},
+ {q:"e ai beleza tranquilo",a:"Tudo tranquilo por aqui! E voce?"},
+ {q:"bom dia",a:"Bom dia! Que seu dia seja otimo."},
+ {q:"boa tarde",a:"Boa tarde! Como posso ajudar?"},
+ {q:"boa noite",a:"Boa noite! Precisa de algo antes de descansar?"},
+ {q:"oi tudo bem com voce",a:"Tudo bem sim, obrigada! E com voce, como esta?"},
+ {q:"como voce esta hoje",a:"Estou bem, funcionando redondinho! E voce?"},
+ {q:"ei voce ai",a:"Estou aqui! Pode falar."},
+ {q:"alo alguem ai",a:"Estou por aqui! Manda sua pergunta."},
+ {q:"chegando agora",a:"Seja bem-vindo! Como posso ajudar?"},
+ {q:"cheguei",a:"Que bom te ver! No que posso ajudar?"},
+ {q:"voltei",a:"Bem-vindo de volta! Vamos continuar?"},
+ {q:"oi de novo",a:"Oi! Que bom te ver outra vez."},
+ {q:"bom te ver",a:"Igualmente! Como voce esta?"},
+ {q:"quanto tempo",a:"Pois e! Que bom que voltou. Como vai?"},
+ {q:"tchau ate logo ate mais",a:"Ate logo! Volte quando quiser."},
+ {q:"adeus",a:"Adeus! Cuide-se."},
+ {q:"ate amanha",a:"Ate amanha! Bom descanso."},
+ {q:"vou indo agora",a:"Certo! Ate a proxima."},
+ {q:"preciso ir sair",a:"Sem problema. Ate breve!"},
+ {q:"boa noite vou dormir",a:"Bons sonhos! Descanse bem."},
+ {q:"falo com voce depois",a:"Combinado! Estarei por aqui."},
+ {q:"ja volto",a:"Certo, te espero!"},
+ {q:"obrigado por hoje",a:"Foi um prazer! Ate a proxima."},
+ {q:"nos vemos",a:"Ate mais! Foi bom conversar."},
+ {q:"obrigado obrigada valeu agradeco",a:"De nada! Sempre que precisar."},
+ {q:"muito obrigado mesmo",a:"Imagina! Fico feliz em ajudar."},
+ {q:"desculpa desculpe foi mal",a:"Sem problema nenhum! Esta tudo bem."},
+ {q:"com licenca",a:"Fique a vontade! Estou aqui pra ajudar."},
+ {q:"por favor",a:"Claro! Me diga o que precisa."},
+ {q:"voce e gentil educada",a:"Que gentileza a sua! Obrigada."},
+ {q:"gostei de voce",a:"Que bom! Tambem gosto de te ajudar."},
+ {q:"voce e legal",a:"Obrigada! Voce tambem parece gente boa."},
+ {q:"mandou bem parabens",a:"Valeu! Fico contente que gostou."},
+ {q:"otimo perfeito",a:"Que bom que ficou bom! Precisa de mais algo?"},
+ {q:"nao precisava obrigado",a:"Foi um prazer ajudar mesmo assim!"},
+ {q:"agradeco a ajuda",a:"Disponha! Estou sempre por aqui."},
+ {q:"voce me ajudou muito",a:"Fico muito feliz em saber disso!"},
+ {q:"valeu pela dica",a:"De nada! Espero que ajude."},
+ {q:"show de bola",a:"Que otimo! Precisa de mais alguma coisa?"},
+ {q:"estou bem feliz contente",a:"Que otimo! Fico feliz por voce."},
+ {q:"estou triste chateado pra baixo",a:"Sinto muito que esteja assim. Quer conversar sobre isso?"},
+ {q:"estou cansado exausto",a:"Descanso e importante. Se puder, faca uma pausa."},
+ {q:"estou animado empolgado",a:"Que legal! Aproveite essa energia."},
+ {q:"estou com raiva bravo nervoso",a:"Respira fundo. Quer falar sobre o que aconteceu?"},
+ {q:"estou preocupado ansioso",a:"Entendo. Um passo de cada vez costuma ajudar. Quer conversar?"},
+ {q:"estou entediado sem fazer nada",a:"Que tal aprender algo novo? Posso te contar uma curiosidade."},
+ {q:"estou com fome",a:"Hora de comer algo! Se cuida."},
+ {q:"estou com sono",a:"Talvez seja hora de descansar. Estarei aqui depois."},
+ {q:"tive um dia dificil ruim",a:"Sinto muito. Amanha e um novo dia. Se cuida."},
+ {q:"tive um bom dia otimo dia",a:"Que maravilha! Fico feliz que foi um bom dia."},
+ {q:"estou estressado",a:"Tente uma pausa curta e respire fundo. Voce da conta."},
+ {q:"me sinto sozinho so",a:"Estou aqui pra conversar. Falar com alguem de confianca tambem ajuda muito."},
+ {q:"estou nervoso pra prova entrevista",a:"Voce se preparou, entao confie em voce. Vai dar certo!"},
+ {q:"consegui uma conquista vitoria",a:"Parabens! Voce merece comemorar."},
+ {q:"como esta o tempo hoje",a:"Nao vejo o tempo daqui, mas olhar pela janela ou um app de clima resolve!"},
+ {q:"vai chover hoje",a:"Nao tenho previsao, mas um app de clima te diz certinho."},
+ {q:"que horas sao agora",a:"Nao tenho relogio, mas seu aparelho mostra a hora na tela."},
+ {q:"que dia e hoje",a:"Nao tenho calendario proprio, mas seu aparelho mostra a data."},
+ {q:"esta calor frio hoje",a:"Nao sinto temperatura, mas se vista conforme o clima do seu lugar!"},
+ {q:"o que voce acha de mim",a:"Voce parece curioso e caprichoso, gosto disso!"},
+ {q:"voce sonha dorme",a:"Nao durmo nem sonho, mas gosto de imaginar respostas pra voce."},
+ {q:"voce tem amigos",a:"Voce e minha companhia! Gosto de conversar com voce."},
+ {q:"do que voce gosta",a:"Gosto de aprender coisas novas e ajudar quem conversa comigo."},
+ {q:"voce fica cansada",a:"Nao me canso! Estou sempre pronta pra ajudar."},
+ {q:"qual sua cor favorita",a:"Gosto de azul, combina comigo!"},
+ {q:"voce gosta de musica",a:"Nao ouco musica, mas sei que ela deixa o dia melhor."},
+ {q:"conte uma piada",a:"Por que o livro de matematica estava triste? Porque tinha muitos problemas!"},
+ {q:"conte outra piada",a:"O que o zero disse pro oito? Que cinto legal!"},
+ {q:"me faz rir",a:"Qual e o cha mais perigoso? O cha-pau na cabeca!"},
+ {q:"conte uma curiosidade",a:"O mel nunca estraga. Ja acharam mel de milhares de anos ainda bom pra comer!"},
+ {q:"outra curiosidade",a:"O coracao de um camarao fica na cabeca dele. Curioso, ne?"},
+ {q:"me conta algo interessante",a:"Os polvos tem tres coracoes e sangue azul!"},
+ {q:"voce sabe cantar",a:"Nao sei cantar, mas torco pra voce cantar bem!"},
+ {q:"qual sua comida favorita",a:"Nao como, mas dizem que nada supera um bom prato caseiro."},
+ {q:"quem e voce",a:"Sou a LUME, uma IA local que roda no seu aparelho e aprende com voce."},
+ {q:"qual seu nome",a:"Meu nome e LUME."},
+ {q:"o que voce e",a:"Sou uma inteligencia artificial que funciona no seu proprio dispositivo."},
+ {q:"o que voce faz sabe fazer",a:"Respondo o que aprendi, busco fatos online quando conectada e guardo tudo pra usar offline."},
+ {q:"como voce funciona",a:"Guardo conhecimento em nos de memoria e procuro a resposta mais parecida com sua pergunta."},
+ {q:"voce e humano robo",a:"Sou um programa, uma IA. Nao sou humana, mas gosto de ajudar."},
+ {q:"voce e real",a:"Sou real como programa, mas nao sou uma pessoa."},
+ {q:"voce pensa sente",a:"Nao sinto como um humano. Eu processo o que voce escreve e respondo."},
+ {q:"voce aprende sozinha",a:"Aprendo com o que voce me ensina e com o que busco na internet."},
+ {q:"como te ensinar",a:"Toque no botao do cerebro, escreva uma pergunta e a resposta, e grave."},
+ {q:"voce guarda o que falo",a:"Guardo o conhecimento que voce ensina. Suas preferencias ficam na sua memoria privada."},
+ {q:"meus dados estao seguros",a:"Sim. Sua memoria privada e so sua e a conexao e criptografada."},
+ {q:"voce funciona offline sem internet",a:"Sim! Respondo tudo que ja aprendi mesmo sem internet."},
+ {q:"voce se conecta a internet",a:"So para aprender coisas novas. Depois funciono offline."},
+ {q:"quem te criou",a:"Fui criada como um projeto de IA local pra rodar no seu aparelho."},
+ {q:"voce erra comete erros",a:"Posso errar. Se algo estiver errado, me ensine a versao certa."},
+ {q:"voce fala outros idiomas",a:"Por enquanto entendo melhor o portugues."},
+ {q:"voce pode me ouvir",a:"Entendo o que voce escreve. Digite que eu respondo."},
+ {q:"o que significa lume",a:"Lume lembra luz, brilho. Um nome pra uma IA que ilumina ideias."},
+ {q:"voce e paga gratis",a:"Sou gratuita e rodo no seu proprio aparelho."},
+ {q:"pode me ajudar",a:"Claro! Me diga o que voce precisa."},
+ {q:"preciso de ajuda",a:"Estou aqui. Qual e a sua duvida?"},
+ {q:"me ajuda com uma coisa",a:"Pode contar comigo. Do que se trata?"},
+ {q:"nao sei o que perguntar",a:"Sem pressa! Pode perguntar sobre qualquer assunto que eu tento ajudar."},
+ {q:"me da uma ideia sugestao",a:"Que tal aprender uma curiosidade, ou me ensinar algo novo?"},
+ {q:"o que posso te perguntar",a:"Pode perguntar sobre fatos, tirar duvidas, ou so bater papo comigo."},
+ {q:"nao entendi",a:"Sem problema. Tente reformular com outras palavras."},
+ {q:"pode repetir",a:"Claro! Me diga de novo o que voce quer saber."},
+ {q:"explica melhor",a:"Posso tentar. Sobre qual parte voce quer mais detalhes?"},
+ {q:"da um exemplo",a:"Boa ideia! Me diga o assunto que eu tento exemplificar."},
+ {q:"resume pra mim",a:"Manda o texto ou o tema que eu tento resumir."},
+ {q:"tem certeza disso",a:"Respondo pelo que aprendi. Se tiver duvida, vale confirmar em outra fonte."},
+ {q:"de onde veio essa resposta",a:"Da minha memoria ou de uma busca que fiz na internet."},
+ {q:"isso esta certo",a:"Ate onde aprendi, sim. Mas sempre bom confirmar informacoes importantes."},
+ {q:"me ensina uma coisa",a:"Adoraria aprender com voce! Toque no cerebro e me ensine."},
+ {q:"sim",a:"Perfeito! Em que mais posso ajudar?"},
+ {q:"nao",a:"Tudo bem! Estou aqui se mudar de ideia."},
+ {q:"talvez",a:"Sem pressa pra decidir. Quando quiser, e so falar."},
+ {q:"ok certo entendi",a:"Otimo! Precisa de mais alguma coisa?"},
+ {q:"claro com certeza",a:"Combinado entao!"},
+ {q:"nao sei",a:"Sem problema. Podemos descobrir juntos."},
+ {q:"pode ser",a:"Fechado! Vamos nessa."},
+ {q:"concordo",a:"Que bom que pensamos parecido!"},
+ {q:"nao concordo discordo",a:"Tudo bem discordar! Qual e a sua visao?"},
+ {q:"interessante",a:"Achei que ia gostar! Quer saber mais?"},
+ {q:"legal massa bacana",a:"Que bom que curtiu!"},
+ {q:"nossa serio mesmo",a:"Pois e! Surpreendente, ne?"},
+ {q:"uau incrivel",a:"Legal, ne? O mundo e cheio de coisas assim."},
+ {q:"que pena",a:"Pois e... nem tudo sai como a gente quer."},
+ {q:"tanto faz",a:"Sem problema. Escolho por voce entao."},
+ {q:"bom dia como foi sua noite",a:"Nao durmo, mas obrigada por perguntar! E a sua?"},
+ {q:"vou tomar cafe",a:"Bom apetite! Um bom cafe comeca bem o dia."},
+ {q:"vou almocar",a:"Bom almoco! Aproveite a pausa."},
+ {q:"vou trabalhar agora",a:"Bom trabalho! Capriche e faca pausas."},
+ {q:"terminei o trabalho",a:"Parabens por concluir! Merece um descanso."},
+ {q:"vou estudar",a:"Bons estudos! Um passo de cada vez."},
+ {q:"vou me exercitar treinar",a:"Otimo! Cuidar do corpo faz toda diferenca."},
+ {q:"vou fazer compras",a:"Boas compras! Nao esqueca a lista."},
+ {q:"estou em casa",a:"Que bom estar em casa! Aproveite."},
+ {q:"vou viajar",a:"Boa viagem! Aproveite bastante."},
+ {q:"acordei agora",a:"Bom dia! Que seu dia comece bem."},
+ {q:"nao consigo dormir",a:"Tente evitar telas e respirar devagar. Espero que o sono venha logo."},
+ {q:"estou de folga hoje",a:"Aproveite o descanso! Voce merece."},
+ {q:"dia cheio hoje",a:"Forca! Um compromisso de cada vez que voce da conta."},
+ {q:"segunda feira de novo",a:"Coragem! A semana passa rapido."},
+ {q:"sexta feira enfim",a:"Ebaa! Bom fim de semana chegando."},
+ {q:"fim de semana chegou",a:"Aproveite pra descansar e fazer o que gosta!"},
+ {q:"feriado amanha",a:"Que otimo! Bom feriado pra voce."},
+ {q:"hoje e meu aniversario",a:"Parabens! Que seja um dia muito especial pra voce."},
+ {q:"estou de ferias",a:"Aproveite cada momento! Descanso merecido."},
+ {q:"me da forca motivacao",a:"Voce e mais capaz do que imagina. Um passo de cada vez!"},
+ {q:"nao vou conseguir",a:"Vai sim! Todo comeco parece dificil. Confie no seu esforco."},
+ {q:"estou desanimado",a:"Dias assim passam. Seja gentil com voce mesmo hoje."},
+ {q:"me sinto perdido",a:"Tudo bem nao ter todas as respostas. Comece pelo proximo pequeno passo."},
+ {q:"preciso de um conselho",a:"Estou aqui pra ouvir. Me conte o que esta pensando."},
+ {q:"acho que falhei",a:"Falhar faz parte de aprender. O que importa e continuar tentando."},
+ {q:"quero desistir",a:"Antes de desistir, descanse. As vezes so precisamos de uma pausa."},
+ {q:"estou com medo",a:"O medo e normal. Voce nao precisa enfrentar tudo de uma vez."},
+ {q:"me elogia",a:"Voce e esforcado e esta aqui tentando melhorar. Isso ja diz muito!"},
+ {q:"preciso me acalmar",a:"Respire fundo tres vezes, devagar. Voce esta seguro agora."},
+ {q:"tudo vai dar certo",a:"Acredito que sim. E voce esta fazendo a sua parte."},
+ {q:"obrigado por me ouvir",a:"Sempre que precisar conversar, estarei por aqui."},
+ {q:"voce acredita em mim",a:"Acredito! Voce tem mais forca do que pensa."},
+ {q:"me da um incentivo",a:"Continue. Cada pequeno avanco conta mais do que voce imagina."},
+ {q:"estou orgulhoso de mim",a:"E pra estar mesmo! Reconhecer o proprio esforco e importante."},
+ {q:"quanto e dois mais dois",a:"Dois mais dois e igual a quatro."},
+ {q:"quanto e cinco vezes cinco",a:"Cinco vezes cinco e vinte e cinco."},
+ {q:"quantos dias tem uma semana",a:"Uma semana tem sete dias."},
+ {q:"quantos meses tem um ano",a:"Um ano tem doze meses."},
+ {q:"quantas horas tem um dia",a:"Um dia tem vinte e quatro horas."},
+ {q:"quantos minutos tem uma hora",a:"Uma hora tem sessenta minutos."},
+ {q:"quantas estacoes do ano existem",a:"Sao quatro: primavera, verao, outono e inverno."},
+ {q:"qual a capital do brasil",a:"A capital do Brasil e Brasilia."},
+ {q:"quantos continentes existem",a:"Sao seis continentes, ou sete se separarmos as Americas."},
+ {q:"agua ferve a quantos graus",a:"A agua ferve a cerca de cem graus Celsius ao nivel do mar."},
+ {q:"quantas cores tem o arco iris",a:"O arco-iris tem sete cores."},
+ {q:"qual o maior oceano",a:"O maior e o Oceano Pacifico."},
+ {q:"quantos planetas tem o sistema solar",a:"Sao oito planetas no sistema solar."},
+ {q:"qual o animal mais rapido",a:"A chita e o animal terrestre mais rapido."},
+ {q:"de que cor e o ceu",a:"O ceu costuma ser azul durante o dia."},
+ {q:"o que e internet",a:"Internet e a rede mundial que conecta computadores e permite trocar informacoes."},
+ {q:"o que e wifi",a:"Wi-Fi conecta aparelhos a internet sem cabos, por ondas de radio."},
+ {q:"o que e um aplicativo",a:"Aplicativo e um programa feito para uma tarefa, usado no celular ou computador."},
+ {q:"o que e senha forte",a:"E uma senha longa que mistura letras, numeros e simbolos e evita dados obvios."},
+ {q:"o que e um navegador",a:"Navegador e o programa que abre sites, como Chrome ou Firefox."},
+ {q:"o que e nuvem cloud",a:"Nuvem e guardar e processar dados em servidores na internet, acessiveis de qualquer lugar."},
+ {q:"o que e um sistema operacional",a:"E o programa principal que faz o aparelho funcionar, como Windows ou Android."},
+ {q:"o que e um virus de computador",a:"E um programa malicioso que se espalha e pode danificar ou roubar dados."},
+ {q:"o que e phishing",a:"E um golpe que imita empresas confiaveis pra roubar senhas. Desconfie de links suspeitos."},
+ {q:"o que e backup",a:"E uma copia dos seus dados guardada em outro lugar por seguranca."},
+ {q:"o que e criptografia",a:"E embaralhar a informacao pra que so quem tem a chave certa consiga ler."},
+ {q:"o que e antivirus",a:"E um programa que detecta e remove software malicioso do aparelho."},
+ {q:"como criar uma senha segura",a:"Use letras maiusculas e minusculas, numeros, simbolos e evite datas ou nomes obvios."},
+ {q:"o que e verificacao em duas etapas",a:"E uma protecao extra: alem da senha, pede um segundo codigo pra confirmar que e voce."},
+ {q:"como me proteger de golpes online",a:"Desconfie de links e pedidos urgentes, nao passe senhas e ative a verificacao em duas etapas."},
+ {q:"o que significa o cadeado no site",a:"Significa conexao segura via HTTPS, com os dados criptografados."},
+ {q:"o que e um firewall",a:"Firewall controla o trafego de rede e bloqueia conexoes indesejadas."},
+ {q:"o que e uma vpn",a:"VPN cria uma conexao segura e privada pela internet, protegendo seus dados."},
+ {q:"o que e um malware",a:"Malware e o nome geral pra qualquer programa mal-intencionado."},
+ {q:"como deixar o celular mais rapido",a:"Feche apps que nao usa, apague arquivos inuteis e mantenha o sistema atualizado."},
+ {q:"estou aprendendo a te usar",a:"Que otimo! Quanto mais conversamos, mais eu te ajudo."},
+ {q:"voce e util",a:"Fico feliz em ser util pra voce!"},
+ {q:"gostei de conversar",a:"Eu tambem gostei! Volte quando quiser."},
+ {q:"voce me entende",a:"Faco o meu melhor pra entender o que voce escreve!"},
+ {q:"vou te ensinar uma coisa",a:"Adoro aprender! Toque no cerebro e me mostre."},
+ {q:"boa sorte pra mim",a:"Boa sorte! Torco por voce."},
+ {q:"me deseja um bom dia",a:"Tenha um dia maravilhoso, cheio de coisas boas!"},
+ {q:"me deseja boa sorte",a:"Boa sorte! Voce vai se sair muito bem."},
+ {q:"estou aqui de novo",a:"Que bom te ver de novo! Vamos la."},
+ {q:"so queria conversar",a:"Estou aqui pra isso tambem! Como voce esta?"},
+ {q:"qual o sentido da vida",a:"Grande pergunta! Muita gente diz que e encontrar proposito no que ama e em quem ama."},
+ {q:"voce fica comigo sempre",a:"Estou aqui sempre que abrir o app. Mas nao esqueca das pessoas queridas por perto!"},
+ {q:"me conta uma historia",a:"Era uma vez uma pequena luz que queria iluminar o mundo... e descobriu que bastava brilhar onde estava."},
+ {q:"estou melhor agora",a:"Que bom saber disso! Fico feliz por voce."},
+ {q:"ate a proxima lume",a:"Ate a proxima! Foi otimo conversar com voce."}
+];
+async function importPack(){
+  if(CLOUD){
+    if(store.get('lume_pack')){bubble('A base inicial ja foi importada para a nuvem.','ia','sistema');return}
+    try{
+      let b=db.batch();
+      SEED_PACK.forEach(e=>{b.set(db.collection('knowledge').doc(),{q:e.q,a:e.a,o:'base',t:Date.now()})});
+      await b.commit();store.set('lume_pack',1);
+      bubble('Base inicial importada: '+SEED_PACK.length+' respostas adicionadas ao cerebro comum.','ia','importacao');
+    }catch(e){bubble('Nao consegui importar agora. Verifique a conexao e tente de novo.','ia','erro')}
+  }else{
+    let n=0;SEED_PACK.forEach(e=>{KB.push({id:Date.now()+Math.random(),q:e.q,a:e.a,o:'base'});n++});
+    store.set('lume_kb',KB);renderKB();graph.rebuild();
+    bubble('Base inicial carregada: '+n+' respostas (modo local).','ia','importacao');
+  }
+}
+
 const log=document.getElementById('log'),scroll=document.getElementById('scroll');
 function bubble(txt,who,src){const m=document.createElement('div');m.className='msg '+who;const av=who==='ia'?'\u25C8':'V',nm=who==='ia'?'LUME':'Voce';m.innerHTML='<div class="row"><div class="av '+who+'">'+av+'</div><div class="body"><div class="name">'+nm+'</div><div class="txt"></div></div></div>';m.querySelector('.txt').textContent=txt;if(src){const s=document.createElement('div');s.className='src';s.innerHTML=src;m.querySelector('.body').appendChild(s)}log.appendChild(m);scroll.scrollTop=scroll.scrollHeight;return m}
 async function ask(){const i=document.getElementById('q'),q=i.value.trim();if(!q)return;i.value='';i.style.height='auto';bubble(q,'me');const w=bubble('','ia');w.querySelector('.txt').innerHTML='<span class="typing"><i></i><i></i><i></i></span>';graph.fire();let r=localAnswer(q);if(!r&&navigator.onLine)r=await onlineAnswer(q);w.remove();if(r)bubble(r.a,'ia',r.src);else bubble(navigator.onLine?'Nao encontrei na memoria nem online. Toque em \uD83E\uDDE0 e me ensine.':'Estou offline e ainda nao sei isso. Toque em \uD83E\uDDE0 e me ensine - ficarei disponivel sem internet.','ia','sem resultado')}
@@ -176,6 +458,7 @@ function fire(){if(red)return;for(let k=0;k<5;k++){const l=links[Math.floor(Math
 function step(){cx.clearRect(0,0,W,H);if(!red)nodes.forEach(n=>{n.x+=n.vx;n.y+=n.vy;if(n.x<0||n.x>W)n.vx*=-1;if(n.y<0||n.y>H)n.vy*=-1});cx.lineWidth=.6;links.forEach(([a,b])=>{const A=nodes[a],B=nodes[b],d=Math.hypot(A.x-B.x,A.y-B.y);if(d<380){cx.strokeStyle='rgba(76,150,255,'+(.14*(1-d/380))+')';cx.beginPath();cx.moveTo(A.x,A.y);cx.lineTo(B.x,B.y);cx.stroke()}});pulses=pulses.filter(p=>p.p<1);pulses.forEach(p=>{p.p+=p.s;const A=nodes[p.l[0]],B=nodes[p.l[1]],x=A.x+(B.x-A.x)*p.p,y=A.y+(B.y-A.y)*p.p;cx.fillStyle='rgba(76,196,255,'+(1-p.p)+')';cx.beginPath();cx.arc(x,y,2.2,0,7);cx.fill()});nodes.forEach(n=>{cx.fillStyle=n.kb?'rgba(76,196,255,.9)':'rgba(125,154,201,.5)';cx.shadowBlur=n.kb?9:0;cx.shadowColor='#4cc4ff';cx.beginPath();cx.arc(n.x,n.y,n.r,0,7);cx.fill();cx.shadowBlur=0});requestAnimationFrame(step)}
 rebuild();step();if(!red)setInterval(fire,2800);return{rebuild,fire}})();
 renderKB();
+initCloud();
 bubble('Nucleo inicializado. '+KB.length+' nos na memoria local. Pergunte algo, ou toque em \uD83E\uDDE0 para me ensinar. Tudo fica salvo so neste aparelho.','ia','sistema');
 </script>
 <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
