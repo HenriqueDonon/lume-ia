@@ -249,13 +249,22 @@ async function multiSearch(q){
   const seen=new Set();res=res.filter(r=>{const k=(r.titulo||'').toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});
   return res.slice(0,4);
 }
+function relevante(q,texto){
+  const qT=norm(cleanQuery(q)).split(' ').filter(w=>w.length>2&&!STOP.has(w));
+  if(!qT.length)return true;
+  const tn=norm(texto);let hit=0;qT.forEach(t=>{if(tn.indexOf(t)>=0)hit++});
+  return hit/qT.length>=0.4; // ao menos 40% dos termos aparecem no texto
+}
+function bomTexto(t){return t&&t.length>=60&&t.length<=4000&&/[.!?]/.test(t);}
 async function onlineAnswer(q){
   const res=await multiSearch(q);
   if(!res.length)return null;
   const melhor=res[0];
   const fontes=[...new Set(res.map(r=>r.fonte))].join(', ');
-  addKB(q,melhor.texto,'web');
-  return{a:melhor.texto,src:'internet ('+fontes+') - '+res.length+' fonte(s), gravado para uso offline'};
+  const ok=bomTexto(melhor.texto)&&relevante(q,melhor.texto);
+  if(ok)addKB(q,melhor.texto,'web');
+  const nota=ok?', gravado para uso offline':' (nao gravei: baixa relevancia)';
+  return{a:melhor.texto,src:'internet ('+fontes+') - '+res.length+' fonte(s)'+nota};
 }
 const PERSONAL=/\b(me chame|meu nome|minha idade|eu prefiro|eu moro|eu trabalho|eu sou o|eu sou a|lembre que eu|lembre se|anote que eu)\b/i;function addKB(q,a,o){if(CLOUD){const priv=(o==='manual'&&PERSONAL.test(q));const rec={q,a,o:o||'manual',t:Date.now()};if(priv){db.collection('users').doc(uid).collection('memory').add(rec);}else{db.collection('knowledge').add(rec);}return;}KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();graph.rebuild()}
 function delKB(id){if(CLOUD){if(PRIV.find(e=>e.id===id)){db.collection('users').doc(uid).collection('memory').doc(id).delete();}else if(GLOBAL.find(e=>e.id===id)){db.collection('knowledge').doc(id).delete();}return;}KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();graph.rebuild()}
@@ -549,7 +558,7 @@ async function loadLLM(k){
 async function llmStream(q,el){
   let ctx=topKB(q,3).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
   const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|fale sobre|fale de|explique|explica|defina|para que serve)\b/i.test(norm(q));
-  if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');}}catch(_){}}
+  if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');var mb=web[0];if(bomTexto(mb.texto)&&relevante(q,mb.texto))addKB(q,mb.texto,'web');}}catch(_){}}
   const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Use as fontes e a base abaixo para responder de forma completa e acertiva, combinando as informacoes. Se as fontes divergirem, use a mais consistente. Se nada responder, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
   const msgs=[{role:'system',content:sys},{role:'user',content:q}];
   const tx=el.querySelector('.txt');
