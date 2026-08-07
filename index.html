@@ -89,6 +89,7 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 <header>
   <div class="core"></div>
   <div class="tt"><h1>LUME IA</h1><p><span class="dot" id="netdot"></span><span id="nettxt"></span></p></div>
+  <button class="iconbtn" id="installBtn" onclick="installPWA()" title="Instalar app" style="display:none;color:var(--ok);border-color:rgba(62,230,168,.4)">&#8595;</button>
   <button class="iconbtn" onclick="openSheet()" title="Aprender / Memoria">&#129504;</button>
 </header>
 <main id="scroll"><div id="log"></div></main>
@@ -461,6 +462,15 @@ renderKB();
 initCloud();
 bubble('Nucleo inicializado. '+KB.length+' nos na memoria local. Pergunte algo, ou toque em \uD83E\uDDE0 para me ensinar. Tudo fica salvo so neste aparelho.','ia','sistema');
 </script>
-<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
+<script>let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').style.display='grid'});
+window.addEventListener('appinstalled',()=>{deferredPrompt=null;const b=document.getElementById('installBtn');if(b)b.style.display='none'});
+function installPWA(){
+  if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(()=>{deferredPrompt=null;document.getElementById('installBtn').style.display='none'})}
+  else{bubble('Para instalar: no iPhone use o botao compartilhar e escolha "Adicionar a Tela de Inicio". No Android, use o menu do navegador e "Instalar aplicativo".','ia','instalar')}
+}
+// iOS Safari nao dispara beforeinstallprompt: mostrar botao com instrucoes
+(function(){const iOS=/iphone|ipad|ipod/i.test(navigator.userAgent);const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone;if(iOS&&!standalone){const b=document.getElementById('installBtn');if(b)b.style.display='grid'}})();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
 </body>
 </html>
