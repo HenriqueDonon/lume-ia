@@ -89,6 +89,7 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 <header>
   <div class="core"></div>
   <div class="tt"><h1>LUME IA</h1><p><span class="dot" id="netdot"></span><span id="nettxt"></span></p></div>
+  <button class="iconbtn" id="llmBtn" onclick="toggleLLM()" title="Modo IA avancada (LLM offline)">&#129516;</button>
   <button class="iconbtn" id="installBtn" onclick="installPWA()" title="Instalar app" style="display:none;color:var(--ok);border-color:rgba(62,230,168,.4)">&#8595;</button>
   <button class="iconbtn" onclick="openSheet()" title="Aprender / Memoria">&#129504;</button>
 </header>
@@ -118,6 +119,16 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
     <button onclick="backup()">&#8595; Backup</button>
     <button onclick="document.getElementById('restore').click()">&#8593; Restaurar</button>
     <input type="file" id="restore" accept=".json" style="display:none">
+  </div>
+</div>
+<div class="sheet" id="llmSheet">
+  <div class="grab"></div>
+  <h2>MODO IA AVANCADA <button class="close" onclick="document.getElementById('llmSheet').classList.remove('open');document.getElementById('ov').classList.remove('open')">&times;</button></h2>
+  <div class="form">
+    <label>Escolha o modelo. Maior = melhor, porem baixa mais e roda mais devagar. Baixa uma vez, depois funciona offline.</label>
+    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('05')">0.5B &middot; leve &middot; ~950 MB &middot; ideal p/ celular</button>
+    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('1')">1B &middot; equilibrado &middot; ~880 MB &middot; recomendado</button>
+    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('2')">2B &middot; melhor &middot; ~1.6 GB &middot; p/ PC ou S23+</button>
   </div>
 </div>
 <script>
@@ -190,23 +201,40 @@ function seedKB(){
 seedKB();
 
 const STOP=new Set('a o e de da do em um uma que com por para as os na no se ao sao foi ser tem como mais ou sua seu isso este esta qual quais onde quando porque quem sobre'.split(' '));
-const tok=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>2&&!STOP.has(w));
+function norm(s){return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/(.)\1{2,}/g,'$1').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();}
+function squish(w){return w.replace(/(.)\1+/g,'$1');}
+const tok=s=>norm(s).split(' ').filter(w=>w.length>1&&!STOP.has(w));
 function score(qT,e){const eT=new Set([...tok(e.q),...tok(e.a).slice(0,30)]);let h=0;qT.forEach(t=>{if(eT.has(t))h++});return qT.length?h/qT.length:0}
-const GREET=/\b(ola|oi|oie|eae|salve|bom dia|boa tarde|boa noite|tchau|adeus|obrigad|valeu|sim|nao|ok)\b/i;
+const GREET=/\b(ola|oi|oie|oii|eae|salve|opa|alo|bom dia|boa tarde|boa noite|tchau|adeus|obrigad|valeu|blz|beleza|tranquilo|firmeza)\b/i;
+function isGreeting(q){const n=norm(q);if(GREET.test(' '+n+' '))return true;const first=n.split(' ')[0]||'';return ['oi','oii','oie','ola','eai','eae','opa','alo','salve','blz'].includes(squish(first));}
 function localAnswer(q){
   const SRC=CLOUD?[...PRIV,...GLOBAL,...KB]:KB;
-  const qT=tok(q);let b=null,bs=0;
-  SRC.forEach(e=>{const s=score(qT,e);if(s>bs){bs=s;b=e}});
-  if(bs>=0.34)return{a:b.a,src:'memoria - confianca '+Math.round(bs*100)+'%'};
-  if(GREET.test(q)){
-    const qn=q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    let gb=null,gs=0;
-    SRC.forEach(e=>{const ew=e.q.split(' ');let h=0;ew.forEach(w=>{if(w.length>1&&qn.includes(w))h++});const sc=h/Math.max(ew.length,1);if(sc>gs){gs=sc;gb=e}});
-    if(gs>0)return{a:gb.a,src:'memoria - conversa'};
+  const qn=norm(q);
+  const qT=qn.split(' ').filter(w=>w.length>1&&!STOP.has(w));
+  const qSq=qT.map(squish);
+  let b=null,bs=0;
+  SRC.forEach(e=>{
+    const keys=norm(e.q).split(' ').filter(w=>w.length>1);
+    const kSet=new Set(keys), kSq=new Set(keys.map(squish));
+    let hit=0;
+    qT.forEach((t,idx)=>{ if(kSet.has(t)||kSq.has(qSq[idx]))hit++; });
+    // tambem conta palavras-chave da entrada presentes na pergunta (bidirecional)
+    let hit2=0;
+    keys.forEach(k=>{ if(qn.indexOf(k)>=0||qSq.includes(squish(k)))hit2++; });
+    const denom=Math.max(qT.length,1);
+    const sc=Math.max(hit/denom, hit2/Math.max(keys.length,1)*0.9);
+    if(sc>bs){bs=sc;b=e;}
+  });
+  if(bs>=0.3)return{a:b.a,src:'memoria - '+Math.round(bs*100)+'%'};
+  // saudacao curta que nao bateu: responde de forma amigavel
+  if(isGreeting(q)){
+    const g=SRC.find(e=>/\b(ola|oi)\b/.test(norm(e.q)));
+    if(g)return{a:g.a,src:'memoria - conversa'};
+    return{a:'Oi! Tudo bem? Em que posso ajudar?',src:'conversa'};
   }
   return null;
 }
-async function onlineAnswer(q){try{const s=await fetch('https://pt.wikipedia.org/w/api.php?action=opensearch&limit=1&format=json&origin=*&search='+encodeURIComponent(q));const t=(await s.json())[1][0];if(!t)return null;const r=await fetch('https://pt.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(t));const d=await r.json();if(!d.extract)return null;addKB(q,d.extract,'wikipedia');return{a:d.extract,src:'internet (Wikipedia) - gravado para uso offline'}}catch(e){return null}}
+async function onlineAnswer(q){try{const s=await fetch('https://pt.wikipedia.org/w/api.php?action=opensearch&limit=1&format=json&origin=*&search='+encodeURIComponent(q));const t=(await s.json())[1][0];if(!t)return null;const r=await fetch('https://pt.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(t));const d=await r.json();if(!d.extract||d.type==='disambiguation')return null;addKB(q,d.extract,'wikipedia');return{a:d.extract,src:'internet (Wikipedia) - gravado para uso offline'}}catch(e){return null}}
 const PERSONAL=/\b(me chame|meu nome|minha idade|eu prefiro|eu moro|eu trabalho|eu sou o|eu sou a|lembre que eu|lembre se|anote que eu)\b/i;function addKB(q,a,o){if(CLOUD){const priv=(o==='manual'&&PERSONAL.test(q));const rec={q,a,o:o||'manual',t:Date.now()};if(priv){db.collection('users').doc(uid).collection('memory').add(rec);}else{db.collection('knowledge').add(rec);}return;}KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();graph.rebuild()}
 function delKB(id){if(CLOUD){if(PRIV.find(e=>e.id===id)){db.collection('users').doc(uid).collection('memory').doc(id).delete();}else if(GLOBAL.find(e=>e.id===id)){db.collection('knowledge').doc(id).delete();}return;}KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();graph.rebuild()}
 function renderKB(){const l=document.getElementById('klist');if(!l)return;l.innerHTML='';const LIST=CLOUD?[...PRIV,...GLOBAL]:KB;LIST.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';d.innerHTML='<span title="'+e.a.replace(/"/g,'&quot;')+'">'+(e.o==='wikipedia'?'\uD83C\uDF10 ':(PRIV&&PRIV.find(p=>p.id===e.id)?'\uD83D\uDD12 ':'\uD83E\uDDE0 '))+e.q+'</span>';const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=(CLOUD?(PRIV.length+GLOBAL.length):KB.length)}
@@ -442,7 +470,7 @@ async function importPack(){
 
 const log=document.getElementById('log'),scroll=document.getElementById('scroll');
 function bubble(txt,who,src){const m=document.createElement('div');m.className='msg '+who;const av=who==='ia'?'\u25C8':'V',nm=who==='ia'?'LUME':'Voce';m.innerHTML='<div class="row"><div class="av '+who+'">'+av+'</div><div class="body"><div class="name">'+nm+'</div><div class="txt"></div></div></div>';m.querySelector('.txt').textContent=txt;if(src){const s=document.createElement('div');s.className='src';s.innerHTML=src;m.querySelector('.body').appendChild(s)}log.appendChild(m);scroll.scrollTop=scroll.scrollHeight;return m}
-async function ask(){const i=document.getElementById('q'),q=i.value.trim();if(!q)return;i.value='';i.style.height='auto';bubble(q,'me');const w=bubble('','ia');w.querySelector('.txt').innerHTML='<span class="typing"><i></i><i></i><i></i></span>';graph.fire();let r=localAnswer(q);if(!r&&navigator.onLine)r=await onlineAnswer(q);w.remove();if(r)bubble(r.a,'ia',r.src);else bubble(navigator.onLine?'Nao encontrei na memoria nem online. Toque em \uD83E\uDDE0 e me ensine.':'Estou offline e ainda nao sei isso. Toque em \uD83E\uDDE0 e me ensine - ficarei disponivel sem internet.','ia','sem resultado')}
+async function ask(){const i=document.getElementById('q'),q=i.value.trim();if(!q)return;i.value='';i.style.height='auto';bubble(q,'me');const w=bubble('','ia');w.querySelector('.txt').innerHTML='<span class="typing"><i></i><i></i><i></i></span>';graph.fire();if(LLM_READY){await llmStream(q,w);return;}let r=localAnswer(q);const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|significado|definicao|defina|explique|explica|para que serve|history|historia de)\b/i.test(norm(q))||/\?/.test(q);if(!r&&navigator.onLine&&infoQ&&!isGreeting(q))r=await onlineAnswer(q);w.remove();if(r)bubble(r.a,'ia',r.src);else if(isGreeting(q))bubble('Oi! Tudo bem? Em que posso ajudar?','ia','conversa');else bubble(navigator.onLine?'Ainda nao sei responder isso. Se for um fato, tente perguntar comecando com "o que e...". Ou toque em \uD83E\uDDE0 e me ensine a resposta.':'Estou offline e ainda nao sei isso. Toque em \uD83E\uDDE0 e me ensine.','ia','sem resultado')}
 const qEl=document.getElementById('q');
 qEl.addEventListener('input',()=>{qEl.style.height='auto';qEl.style.height=Math.min(qEl.scrollHeight,120)+'px'});
 qEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask()}});
@@ -453,6 +481,60 @@ function backup(){const b=new Blob([JSON.stringify(KB)],{type:'application/json'
 document.getElementById('restore').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(Array.isArray(d)){KB=d;store.set('lume_kb',KB);renderKB();graph.rebuild();bubble('Memoria restaurada: '+KB.length+' nos.','ia','restauracao')}}catch(_){}};r.readAsText(f)});
 function net(){const on=navigator.onLine;document.getElementById('netdot').className='dot '+(on?'on':'off');document.getElementById('nettxt').textContent=on?'Online - posso aprender da internet':'Offline - modo autonomo'}
 addEventListener('online',net);addEventListener('offline',net);net();
+
+/* ===== MODO IA AVANCADA — LLM offline via WebLLM (WebGPU) ===== */
+const LLM_MODELS={
+  '05':{id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC",nome:"0.5B (leve)",mb:"~950 MB"},
+  '1':{id:"Llama-3.2-1B-Instruct-q4f16_1-MLC",nome:"1B (equilibrado)",mb:"~880 MB"},
+  '2':{id:"gemma-2-2b-it-q4f16_1-MLC",nome:"2B (melhor)",mb:"~1.6 GB"}
+};
+let engine=null,LLM_READY=false,LLM_LOADING=false,LLM_CUR=null;
+function topKB(q,n){
+  const SRC=CLOUD?[...PRIV,...GLOBAL,...KB]:KB;
+  const qn=norm(q),qT=qn.split(' ').filter(w=>w.length>1&&!STOP.has(w));
+  return SRC.map(e=>{const keys=norm(e.q).split(' ');let h=0;qT.forEach(t=>{if(keys.includes(t))h++});return{e,s:h}})
+    .filter(x=>x.s>0).sort((a,b)=>b.s-a.s).slice(0,n).map(x=>x.e);
+}
+function toggleLLM(){
+  if(LLM_LOADING){bubble('O modelo ja esta carregando, aguarde...','ia','llm');return;}
+  if(!navigator.gpu){bubble('Este aparelho/navegador nao tem WebGPU, entao nao consigo rodar o LLM offline aqui. Continuo no modo normal (base + internet). Use o Chrome atualizado.','ia','llm');return;}
+  document.getElementById('llmSheet').classList.add('open');
+  document.getElementById('ov').classList.add('open');
+}
+function pickModel(k){
+  document.getElementById('llmSheet').classList.remove('open');
+  document.getElementById('ov').classList.remove('open');
+  loadLLM(k);
+}
+async function loadLLM(k){
+  const m=LLM_MODELS[k];
+  LLM_LOADING=true;LLM_READY=false;LLM_CUR=k;
+  document.getElementById('llmBtn').style.color='var(--warn)';
+  const w=bubble('Preparando modelo '+m.nome+' ('+m.mb+' na primeira vez, depois offline)...','ia','llm');
+  try{
+    const webllm=await import('https://esm.run/@mlc-ai/web-llm');
+    engine=await webllm.CreateMLCEngine(m.id,{initProgressCallback:(p)=>{
+      w.querySelector('.txt').textContent='Carregando '+m.nome+': '+Math.round((p.progress||0)*100)+'%';
+    }});
+    LLM_READY=true;LLM_LOADING=false;
+    document.getElementById('llmBtn').style.color='var(--ok)';
+    w.querySelector('.txt').textContent='IA '+m.nome+' pronta! Agora gero respostas de verdade, usando o que voce me ensinou. Funciona offline daqui pra frente.';
+  }catch(err){
+    LLM_LOADING=false;document.getElementById('llmBtn').style.color='';
+    w.querySelector('.txt').textContent='Nao consegui carregar ('+(err&&err.message?err.message:'erro')+'). Na primeira vez precisa de internet. Continuo no modo normal.';
+  }
+}
+async function llmStream(q,el){
+  const ctx=topKB(q,3).map(e=>'- '+e.q+': '+e.a).join('\n');
+  const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Se a base de conhecimento abaixo tiver a resposta, use-a. Se nao souber, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
+  try{
+    const stream=await engine.chat.completions.create({messages:[{role:'system',content:sys},{role:'user',content:q}],stream:true,temperature:0.6,max_tokens:400});
+    let acc='';
+    for await(const ch of stream){const d=ch.choices[0]?.delta?.content||'';if(d){acc+=d;el.querySelector('.txt').textContent=acc;scroll.scrollTop=scroll.scrollHeight;}}
+    const s=el.querySelector('.body');const tag=document.createElement('div');tag.className='src';tag.innerHTML='&#9672; IA avancada (offline)';s.appendChild(tag);
+  }catch(e){el.querySelector('.txt').textContent='Tive um problema ao gerar a resposta. Tente de novo.';}
+}
+
 const graph=(()=>{const cv=document.getElementById('brain'),cx=cv.getContext('2d');let W,H,nodes=[],links=[],pulses=[];const red=matchMedia('(prefers-reduced-motion: reduce)').matches;function size(){W=cv.width=innerWidth;H=cv.height=innerHeight}addEventListener('resize',()=>{size();rebuild()});size();
 function rebuild(){const base=innerWidth<600?12:18,extra=Math.min(KB.length,30);nodes=[];links=[];for(let i=0;i<base+extra;i++)nodes.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.22,r:i<base?1.4+Math.random()*1.4:2.4+Math.random()*1.8,kb:i>=base});for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++)if(Math.random()<.06)links.push([i,j]);document.getElementById('ns').textContent=links.length}
 function fire(){if(red)return;for(let k=0;k<5;k++){const l=links[Math.floor(Math.random()*links.length)];if(l)pulses.push({l,p:0,s:.012+Math.random()*.02})}}
