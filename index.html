@@ -525,14 +525,26 @@ async function loadLLM(k){
   }
 }
 async function llmStream(q,el){
-  const ctx=topKB(q,3).map(e=>'- '+e.q+': '+e.a).join('\n');
+  const ctx=topKB(q,3).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
   const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Se a base de conhecimento abaixo tiver a resposta, use-a. Se nao souber, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
+  const msgs=[{role:'system',content:sys},{role:'user',content:q}];
+  const tx=el.querySelector('.txt');
+  function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';t.innerHTML='&#9672; IA avancada (offline)';b.appendChild(t);}
   try{
-    const stream=await engine.chat.completions.create({messages:[{role:'system',content:sys},{role:'user',content:q}],stream:true,temperature:0.6,max_tokens:400});
+    const stream=await engine.chat.completions.create({messages:msgs,stream:true,temperature:0.6,max_tokens:512});
     let acc='';
-    for await(const ch of stream){const d=ch.choices[0]?.delta?.content||'';if(d){acc+=d;el.querySelector('.txt').textContent=acc;scroll.scrollTop=scroll.scrollHeight;}}
-    const s=el.querySelector('.body');const tag=document.createElement('div');tag.className='src';tag.innerHTML='&#9672; IA avancada (offline)';s.appendChild(tag);
-  }catch(e){el.querySelector('.txt').textContent='Tive um problema ao gerar a resposta. Tente de novo.';}
+    for await(const ch of stream){var d='';try{d=(ch&&ch.choices&&ch.choices[0]&&ch.choices[0].delta&&ch.choices[0].delta.content)||'';}catch(_){}if(d){acc+=d;tx.textContent=acc;scroll.scrollTop=scroll.scrollHeight;}}
+    if(acc.trim()){done();return;}
+  }catch(e1){}
+  try{
+    tx.innerHTML='<span class="typing"><i></i><i></i><i></i></span>';
+    const r=await engine.chat.completions.create({messages:msgs,temperature:0.6,max_tokens:512});
+    var out='';try{out=r.choices[0].message.content;}catch(_){out='';}
+    if(out&&out.trim()){tx.textContent=out.trim();done();return;}
+    tx.textContent='Nao consegui gerar resposta desta vez. Tente reformular.';
+  }catch(e2){
+    tx.textContent='Erro na IA: '+((e2&&e2.message)?e2.message:e2)+'. Tente de novo ou use um modelo menor no botao do topo.';
+  }
 }
 
 const graph=(()=>{const cv=document.getElementById('brain'),cx=cv.getContext('2d');let W,H,nodes=[],links=[],pulses=[];const red=matchMedia('(prefers-reduced-motion: reduce)').matches;function size(){W=cv.width=innerWidth;H=cv.height=innerHeight}addEventListener('resize',()=>{size();rebuild()});size();
