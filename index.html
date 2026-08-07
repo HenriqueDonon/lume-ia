@@ -520,6 +520,7 @@ const LLM_MODELS={
   '2':{id:"gemma-2-2b-it-q4f16_1-MLC",nome:"2B (melhor)",mb:"~1.6 GB"}
 };
 let engine=null,LLM_READY=false,LLM_LOADING=false,LLM_CUR=null;
+let HIST=[]; // ultimas trocas para dar continuidade a conversa
 function topKB(q,n){
   const SRC=CLOUD?[...PRIV,...GLOBAL,...KB]:KB;
   const qn=norm(q),qT=qn.split(' ').filter(w=>w.length>1&&!STOP.has(w));
@@ -558,11 +559,11 @@ async function loadLLM(k){
 async function llmStream(q,el){
   let ctx=topKB(q,3).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
   const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|fale sobre|fale de|explique|explica|defina|para que serve)\b/i.test(norm(q));
-  if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');var mb=web[0];if(bomTexto(mb.texto)&&relevante(q,mb.texto))addKB(q,mb.texto,'web');}}catch(_){}}
+  if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');var mb=web[0];var fs=[...new Set(web.map(function(x){return x.fonte}))].join(', ');if(bomTexto(mb.texto)&&relevante(q,mb.texto)){addKB(q,mb.texto,'web');SAVED={ok:true,fonte:fs};}else{SAVED={ok:false,fonte:fs};}}}catch(_){}}
   const sys='Voce e a LUME, uma assistente em portugues do Brasil. Responda de forma curta, clara e correta. Use as fontes e a base abaixo para responder de forma completa e acertiva, combinando as informacoes. Se as fontes divergirem, use a mais consistente. Se nada responder, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
-  const msgs=[{role:'system',content:sys},{role:'user',content:q}];
-  const tx=el.querySelector('.txt');
-  function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';t.innerHTML='&#9672; IA avancada (offline)';b.appendChild(t);}
+  const msgs=[{role:'system',content:sys}].concat(HIST.slice(-6)).concat([{role:'user',content:q}]);
+  const tx=el.querySelector('.txt');let SAVED=null;
+  function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';var sel='';if(SAVED){sel=SAVED.ok?' &middot; &#10003; salvo na memoria ('+SAVED.fonte+')':' &middot; nao salvo (baixa relevancia)';}t.innerHTML='&#9672; IA avancada (offline)'+sel;b.appendChild(t);var resp=tx.textContent||'';HIST.push({role:'user',content:q});HIST.push({role:'assistant',content:resp});if(HIST.length>12)HIST=HIST.slice(-12);}
   try{
     const stream=await engine.chat.completions.create({messages:msgs,stream:true,temperature:0.6,max_tokens:512});
     let acc='';
