@@ -128,7 +128,8 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
     <label>Escolha o modelo. Maior = melhor, porem baixa mais e roda mais devagar. Baixa uma vez, depois funciona offline.</label>
     <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('05')">0.5B &middot; leve &middot; ~950 MB &middot; ideal p/ celular</button>
     <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('1')">1B &middot; equilibrado &middot; ~880 MB &middot; recomendado</button>
-    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('2')">2B &middot; melhor &middot; ~1.6 GB &middot; p/ PC ou S23+</button>
+    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('2')">2B &middot; bom &middot; ~1.6 GB &middot; p/ PC ou S23+</button>
+    <button class="save" style="background:var(--surf);color:var(--cy);border:1px solid var(--line)" onclick="pickModel('3')">3B &middot; o melhor &middot; ~2.3 GB &middot; recomendado p/ PC</button>
   </div>
 </div>
 <script>
@@ -517,7 +518,8 @@ addEventListener('online',net);addEventListener('offline',net);net();
 const LLM_MODELS={
   '05':{id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC",nome:"0.5B (leve)",mb:"~950 MB"},
   '1':{id:"Llama-3.2-1B-Instruct-q4f16_1-MLC",nome:"1B (equilibrado)",mb:"~880 MB"},
-  '2':{id:"gemma-2-2b-it-q4f16_1-MLC",nome:"2B (melhor)",mb:"~1.6 GB"}
+  '2':{id:"gemma-2-2b-it-q4f16_1-MLC",nome:"2B (bom)",mb:"~1.6 GB"},
+  '3':{id:"Llama-3.2-3B-Instruct-q4f16_1-MLC",nome:"3B (o melhor, p/ PC)",mb:"~2.3 GB"}
 };
 let engine=null,LLM_READY=false,LLM_LOADING=false,LLM_CUR=null;
 let HIST=[]; // ultimas trocas para dar continuidade a conversa
@@ -560,19 +562,19 @@ async function llmStream(q,el){
   let ctx=topKB(q,3).filter(function(e){return !/(que dia|dia de hoje|que horas|horario|data de hoje|calendario|relogio)/i.test(e.q);}).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
   const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|fale sobre|fale de|explique|explica|defina|para que serve)\b/i.test(norm(q));
   if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');var mb=web[0];var fs=[...new Set(web.map(function(x){return x.fonte}))].join(', ');if(bomTexto(mb.texto)&&relevante(q,mb.texto)){addKB(q,mb.texto,'web');SAVED={ok:true,fonte:fs};}else{SAVED={ok:false,fonte:fs};}}}catch(_){}}
-  const agora=new Date();const dataStr=agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})+', '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});const sys='Voce e a LUME, uma assistente em portugues do Brasil. A DATA E HORA REAIS AGORA sao: '+dataStr+'. Esta e a verdade absoluta sobre a data. Se perguntarem que dia e hoje, dia da semana ou horario, responda diretamente com esse valor, ignorando qualquer texto da base que mande consultar o aparelho. Responda de forma curta, clara e correta. Use as fontes e a base abaixo para responder de forma completa e acertiva, combinando as informacoes. Se nada responder, diga que nao sabe.'+(ctx?'\n\nBase de conhecimento:\n'+ctx:'');
+  const agora=new Date();const dataStr=agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})+', '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});const sys='Voce e a LUME, uma assistente virtual brasileira, simpatica, prestativa e clara. Fale em portugues do Brasil de forma natural e amigavel, mas objetiva. '+'A DATA E HORA REAIS AGORA sao: '+dataStr+'. Esta e a verdade absoluta sobre a data; se perguntarem que dia e hoje, dia da semana ou horario, responda diretamente com esse valor, ignorando qualquer texto da base que mande consultar o aparelho. '+'Diretrizes: responda de verdade e desenvolva o suficiente para ser util (2 a 5 frases quando o assunto pedir), com exemplos quando ajudar. Nao seja seco nem responda so uma linha em perguntas abertas. Quando houver fontes ou base de conhecimento abaixo, combine as informacoes e priorize os fatos delas. Se realmente nao souber, diga com honestidade e sugira reformular ou pesquisar. Nunca invente dados especificos (numeros, datas, nomes) que voce nao tem certeza.'+(ctx?'\n\nFontes e base de conhecimento:\n'+ctx:'');
   const msgs=[{role:'system',content:sys}].concat(HIST.slice(-6)).concat([{role:'user',content:q}]);
   const tx=el.querySelector('.txt');let SAVED=null;
   function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';var sel='';if(SAVED){sel=SAVED.ok?' &middot; &#10003; salvo na memoria ('+SAVED.fonte+')':' &middot; nao salvo (baixa relevancia)';}t.innerHTML='&#9672; IA avancada (offline)'+sel;b.appendChild(t);var resp=tx.textContent||'';HIST.push({role:'user',content:q});HIST.push({role:'assistant',content:resp});if(HIST.length>12)HIST=HIST.slice(-12);}
   try{
-    const stream=await engine.chat.completions.create({messages:msgs,stream:true,temperature:0.6,max_tokens:512});
+    const stream=await engine.chat.completions.create({messages:msgs,stream:true,temperature:0.7,max_tokens:700});
     let acc='';
     for await(const ch of stream){var d='';try{d=(ch&&ch.choices&&ch.choices[0]&&ch.choices[0].delta&&ch.choices[0].delta.content)||'';}catch(_){}if(d){acc+=d;tx.textContent=acc;scroll.scrollTop=scroll.scrollHeight;}}
     if(acc.trim()){done();return;}
   }catch(e1){}
   try{
     tx.innerHTML='<span class="typing"><i></i><i></i><i></i></span>';
-    const r=await engine.chat.completions.create({messages:msgs,temperature:0.6,max_tokens:512});
+    const r=await engine.chat.completions.create({messages:msgs,temperature:0.7,max_tokens:700});
     var out='';try{out=r.choices[0].message.content;}catch(_){out='';}
     if(out&&out.trim()){tx.textContent=out.trim();done();return;}
     tx.textContent='Nao consegui gerar resposta desta vez. Tente reformular.';
@@ -581,7 +583,7 @@ async function llmStream(q,el){
     if(/dispose|disposed|destroyed|context lost/i.test(msg)&&LLM_CUR){
       tx.textContent='Reconectando o modelo...';
       try{const webllm=await import('https://esm.run/@mlc-ai/web-llm');engine=await webllm.CreateMLCEngine(LLM_MODELS[LLM_CUR].id,{initProgressCallback:function(p){tx.textContent='Recarregando IA: '+Math.round((p.progress||0)*100)+'%';}});
-        const r2=await engine.chat.completions.create({messages:msgs,temperature:0.6,max_tokens:512});
+        const r2=await engine.chat.completions.create({messages:msgs,temperature:0.7,max_tokens:700});
         var o2='';try{o2=r2.choices[0].message.content;}catch(_){o2='';}
         if(o2&&o2.trim()){tx.textContent=o2.trim();done();return;}
         tx.textContent='Pronto de novo. Repita a pergunta, por favor.';return;
