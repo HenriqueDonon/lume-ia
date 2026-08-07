@@ -547,9 +547,15 @@ async function loadLLM(k){
   const w=bubble('Preparando modelo '+m.nome+' ('+m.mb+' na primeira vez, depois offline)...','ia','llm');
   try{
     const webllm=await import('https://esm.run/@mlc-ai/web-llm');
-    engine=await webllm.CreateMLCEngine(m.id,{initProgressCallback:(p)=>{
-      w.querySelector('.txt').textContent='Carregando '+m.nome+': '+Math.round((p.progress||0)*100)+'%';
-    }});
+    const cfg={initProgressCallback:(p)=>{w.querySelector('.txt').textContent='Carregando '+m.nome+': '+Math.round((p.progress||0)*100)+'%';},appConfig:Object.assign({},webllm.prebuiltAppConfig,{useIndexedDBCache:true})};
+    try{
+      engine=await webllm.CreateMLCEngine(m.id,cfg);
+    }catch(errCache){
+      // Cache API bloqueada (comum em PWA): tenta novamente ja forcando IndexedDB e limpando cache corrompido
+      w.querySelector('.txt').textContent='Ajustando armazenamento e tentando de novo...';
+      try{if(window.caches){const ks=await caches.keys();for(const kk of ks){if(/webllm|mlc/i.test(kk))await caches.delete(kk);}}}catch(_){}
+      engine=await webllm.CreateMLCEngine(m.id,cfg);
+    }
     LLM_READY=true;LLM_LOADING=false;
     document.getElementById('llmBtn').style.color='var(--ok)';
     w.querySelector('.txt').textContent='IA '+m.nome+' pronta! Agora gero respostas de verdade, usando o que voce me ensinou. Funciona offline daqui pra frente.';
@@ -562,7 +568,7 @@ async function llmStream(q,el){
   let ctx=topKB(q,3).filter(function(e){return !/(que dia|dia de hoje|que horas|horario|data de hoje|calendario|relogio)/i.test(e.q);}).map(function(e){return '- '+e.q+': '+e.a}).join('\n');
   const infoQ=/\b(o que|que e|que sao|qual|quais|quem|quando|onde|como|porque|por que|quantos|quantas|significa|fale sobre|fale de|explique|explica|defina|para que serve)\b/i.test(norm(q));
   if(infoQ&&navigator.onLine){try{el.querySelector('.txt').textContent='Pesquisando em varias fontes...';const web=await multiSearch(q);if(web.length){ctx+=(ctx?'\n':'')+web.map(function(r){return '['+r.fonte+'] '+r.titulo+': '+r.texto}).join('\n');var mb=web[0];var fs=[...new Set(web.map(function(x){return x.fonte}))].join(', ');if(bomTexto(mb.texto)&&relevante(q,mb.texto)){addKB(q,mb.texto,'web');SAVED={ok:true,fonte:fs};}else{SAVED={ok:false,fonte:fs};}}}catch(_){}}
-  const agora=new Date();const dataStr=agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})+', '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});const sys='Voce e a LUME, uma assistente virtual brasileira, simpatica, prestativa e clara. Fale em portugues do Brasil de forma natural e amigavel, mas objetiva. '+'A DATA E HORA REAIS AGORA sao: '+dataStr+'. Esta e a verdade absoluta sobre a data; se perguntarem que dia e hoje, dia da semana ou horario, responda diretamente com esse valor, ignorando qualquer texto da base que mande consultar o aparelho. '+'Diretrizes: responda de verdade e desenvolva o suficiente para ser util (2 a 5 frases quando o assunto pedir), com exemplos quando ajudar. Nao seja seco nem responda so uma linha em perguntas abertas. Quando houver fontes ou base de conhecimento abaixo, combine as informacoes e priorize os fatos delas. Se realmente nao souber, diga com honestidade e sugira reformular ou pesquisar. Nunca invente dados especificos (numeros, datas, nomes) que voce nao tem certeza.'+(ctx?'\n\nFontes e base de conhecimento:\n'+ctx:'');
+  const agora=new Date();const dataStr=agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})+', '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});const sys='Voce e a LUME, uma assistente virtual brasileira, simpatica, prestativa e clara. Fale em portugues do Brasil de forma natural e amigavel, mas objetiva. '+'Contexto de tempo: hoje e '+dataStr+'. Use isso APENAS para perguntas sobre o dia/data/hora de HOJE. Para perguntas sobre OUTRAS datas (feriados, virada do ano, aniversarios, datas futuras ou passadas), calcule ou responda normalmente, NUNCA repita a data de hoje como se fosse a resposta. Exemplo: a virada do ano e sempre 1 de janeiro, nao a data de hoje. '+'Diretrizes: responda de verdade e desenvolva o suficiente para ser util (2 a 5 frases quando o assunto pedir), com exemplos quando ajudar. Nao seja seco nem responda so uma linha em perguntas abertas. Quando houver fontes ou base de conhecimento abaixo, combine as informacoes e priorize os fatos delas. Se realmente nao souber, diga com honestidade e sugira reformular ou pesquisar. Nunca invente dados especificos (numeros, datas, nomes) que voce nao tem certeza.'+(ctx?'\n\nFontes e base de conhecimento:\n'+ctx:'');
   const msgs=[{role:'system',content:sys}].concat(HIST.slice(-6)).concat([{role:'user',content:q}]);
   const tx=el.querySelector('.txt');let SAVED=null;
   function done(){var b=el.querySelector('.body');var t=document.createElement('div');t.className='src';var sel='';if(SAVED){sel=SAVED.ok?' &middot; &#10003; salvo na memoria ('+SAVED.fonte+')':' &middot; nao salvo (baixa relevancia)';}t.innerHTML='&#9672; IA avancada (offline)'+sel;b.appendChild(t);var resp=tx.textContent||'';HIST.push({role:'user',content:q});HIST.push({role:'assistant',content:resp});if(HIST.length>12)HIST=HIST.slice(-12);}
