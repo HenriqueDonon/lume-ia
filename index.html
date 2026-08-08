@@ -98,6 +98,11 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 .gdiv::before,.gdiv::after{content:"";flex:1;height:1px;background:var(--line)}
 .gtoggle{text-align:center;font-size:13px;color:var(--dim);margin-top:6px}
 .gtoggle a{color:var(--cy);cursor:pointer;text-decoration:none}
+.gpwrap{position:relative}
+.gpwrap input{padding-right:44px}
+.gpeye{position:absolute;right:8px;top:50%;transform:translateY(-50%);margin-top:-5px;background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:6px;line-height:1;transition:.2s}
+.gpeye:hover{color:var(--cy)}
+.gpeye.on{color:var(--cy)}
 .gerr{color:#ff6b8a;font-size:12px;text-align:center;min-height:16px;margin-bottom:8px}
 .logoutbtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:10px;padding:5px 10px;font-size:11px;cursor:pointer;transition:.2s}
 .logoutbtn:hover{border-color:#ff6b8a;color:#ff6b8a}
@@ -119,7 +124,7 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
     </button>
     <div class="gdiv">ou</div>
     <input id="gmail" type="email" placeholder="Seu e-mail" autocomplete="email">
-    <input id="gpass" type="password" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginEmail()">
+    <div class="gpwrap"><input id="gpass" type="password" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginEmail()"><button type="button" class="gpeye" id="gpeye" onclick="toggleSenha()" title="Mostrar senha">&#128065;</button></div>
     <button class="gatebtn" id="gbtn" onclick="loginEmail()">Entrar</button>
     <div class="gtoggle" id="gtoggle">Nao tem conta? <a onclick="toggleMode()">Criar conta</a></div>
   </div>
@@ -202,6 +207,7 @@ async function initCloud(){
     AUTH=firebase.auth();
     try{await db.enablePersistence({synchronizeTabs:true})}catch(e){}
     AUTH.onAuthStateChanged(function(user){
+      if(user&&user.isAnonymous){try{AUTH.signOut();}catch(e){}return;}
       if(user){
         uid=user.uid;CLOUD=true;
         document.getElementById('gate').classList.add('hide');
@@ -209,7 +215,7 @@ async function initCloud(){
           subscribed=true;
           db.collection('knowledge').onSnapshot(function(snap){GLOBAL=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
           db.collection('users').doc(uid).collection('memory').onSnapshot(function(snap){PRIV=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
-          bubble('Bem-vindo, '+(user.displayName||user.email||'usuario')+'! Sua memoria privada esta sincronizada.','ia','conta');
+          var quem=user.displayName||user.email||'usuario';bubble('Bem-vindo, '+quem+'! Sua memoria privada esta sincronizada.','ia','conta');var np=document.querySelector('.tt p');if(np)np.setAttribute('title','Logado como: '+(user.email||quem));var lb=document.getElementById('logoutBtn');if(lb)lb.title='Sair ('+quem+')';
         }
       }else{
         CLOUD=false;uid=null;
@@ -246,6 +252,7 @@ async function loginGoogle(){
     await AUTH.signInWithPopup(prov);
   }catch(e){gerr(traduzErro(e));}
 }
+function toggleSenha(){var i=document.getElementById('gpass'),b=document.getElementById('gpeye');if(i.type==='password'){i.type='text';b.classList.add('on');b.title='Ocultar senha';}else{i.type='password';b.classList.remove('on');b.title='Mostrar senha';}}
 function toggleMode(){
   LOGINMODE=(LOGINMODE==='entrar')?'criar':'entrar';
   document.getElementById('gbtn').textContent=(LOGINMODE==='criar')?'Criar conta':'Entrar';
