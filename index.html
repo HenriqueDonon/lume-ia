@@ -123,8 +123,11 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
       Continuar com Google
     </button>
     <div class="gdiv">ou</div>
+    <input id="gnome" type="text" placeholder="Nome completo" autocomplete="name" style="display:none">
+    <input id="gapelido" type="text" placeholder="Apelido (como a Lume vai te chamar)" style="display:none">
     <input id="gmail" type="email" placeholder="Seu e-mail" autocomplete="email">
     <div class="gpwrap"><input id="gpass" type="password" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginEmail()"><button type="button" class="gpeye" id="gpeye" onclick="toggleSenha()" title="Mostrar senha">&#128065;</button></div>
+    <div id="gpwhint" style="display:none;font-size:11px;color:var(--dim);margin:-2px 0 10px;line-height:1.4">Senha forte: 8+ caracteres, com maiuscula, numero e simbolo (ex: !@#$).</div>
     <button class="gatebtn" id="gbtn" onclick="loginEmail()">Entrar</button>
     <div class="gtoggle" id="gtoggle">Nao tem conta? <a onclick="toggleMode()">Criar conta</a></div>
   </div>
@@ -239,11 +242,22 @@ async function loginEmail(){
   gerr('');
   var em=document.getElementById('gmail').value.trim();
   var pw=document.getElementById('gpass').value;
-  if(!em||!pw){gerr('Preencha e-mail e senha.');return;}
-  try{
-    if(LOGINMODE==='criar')await AUTH.createUserWithEmailAndPassword(em,pw);
-    else await AUTH.signInWithEmailAndPassword(em,pw);
-  }catch(e){gerr(traduzErro(e));}
+  if(LOGINMODE==='criar'){
+    var nome=document.getElementById('gnome').value.trim();
+    var apel=document.getElementById('gapelido').value.trim();
+    if(!nome){gerr('Informe seu nome completo.');return;}
+    if(!apel){gerr('Escolha um apelido.');return;}
+    if(!em){gerr('Informe seu e-mail.');return;}
+    if(!senhaForte(pw)){gerr('Senha fraca: use 8+ caracteres, maiuscula, numero e simbolo.');return;}
+    try{
+      var cr=await AUTH.createUserWithEmailAndPassword(em,pw);
+      try{await cr.user.updateProfile({displayName:apel});}catch(_){}
+      try{await db.collection('users').doc(cr.user.uid).set({nome:nome,apelido:apel,criado:Date.now()},{merge:true});}catch(_){}
+    }catch(e){gerr(traduzErro(e));}
+  }else{
+    if(!em||!pw){gerr('Preencha e-mail e senha.');return;}
+    try{await AUTH.signInWithEmailAndPassword(em,pw);}catch(e){gerr(traduzErro(e));}
+  }
 }
 async function loginGoogle(){
   gerr('');
@@ -255,10 +269,17 @@ async function loginGoogle(){
 function toggleSenha(){var i=document.getElementById('gpass'),b=document.getElementById('gpeye');if(i.type==='password'){i.type='text';b.classList.add('on');b.title='Ocultar senha';}else{i.type='password';b.classList.remove('on');b.title='Mostrar senha';}}
 function toggleMode(){
   LOGINMODE=(LOGINMODE==='entrar')?'criar':'entrar';
-  document.getElementById('gbtn').textContent=(LOGINMODE==='criar')?'Criar conta':'Entrar';
-  document.getElementById('gsub').textContent=(LOGINMODE==='criar')?'Crie sua conta gratuita':'Entre para acessar sua IA';
-  document.getElementById('gtoggle').innerHTML=(LOGINMODE==='criar')?'Ja tem conta? <a onclick="toggleMode()">Entrar</a>':'Nao tem conta? <a onclick="toggleMode()">Criar conta</a>';
+  var criar=(LOGINMODE==='criar');
+  document.getElementById('gbtn').textContent=criar?'Criar conta':'Entrar';
+  document.getElementById('gsub').textContent=criar?'Crie sua conta gratuita':'Entre para acessar sua IA';
+  document.getElementById('gtoggle').innerHTML=criar?'Ja tem conta? <a onclick="toggleMode()">Entrar</a>':'Nao tem conta? <a onclick="toggleMode()">Criar conta</a>';
+  document.getElementById('gnome').style.display=criar?'block':'none';
+  document.getElementById('gapelido').style.display=criar?'block':'none';
+  document.getElementById('gpwhint').style.display=criar?'block':'none';
   gerr('');
+}
+function senhaForte(pw){
+  return pw.length>=8 && /[A-Z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw);
 }
 async function logout(){
   if(AUTH){try{await AUTH.signOut();}catch(e){}subscribed=false;GLOBAL=[];PRIV=[];location.reload();}
