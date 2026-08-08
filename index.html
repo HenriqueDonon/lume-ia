@@ -153,8 +153,9 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 <header>
   <div class="core"></div>
   <div class="tt"><h1>LUME IA</h1><p><span class="dot" id="netdot"></span><span id="nettxt"></span></p></div>
-  <button class="iconbtn" id="llmBtn" onclick="toggleLLM()" title="Modo IA avancada (LLM offline)">&#129516;</button>
-  <button class="iconbtn" id="installBtn" onclick="installPWA()" title="Instalar app" style="display:none;color:var(--ok);border-color:rgba(62,230,168,.4)">&#8595;</button>
+  <button class="iconbtn" id="menuBtn" onclick="openMenu()" title="Configuracoes">&#9776;</button>
+  <button class="iconbtn" id="llmBtn" onclick="toggleLLM()" title="Modo IA avancada (LLM offline)" style="display:none">&#129516;</button>
+  <button class="iconbtn" id="installBtn" onclick="installPWA()" title="Instalar app" style="display:none">&#8595;</button>
   <button class="iconbtn" onclick="openSheet()" title="Aprender / Memoria">&#129504;</button>
 </header>
 <main id="scroll"><div id="log"></div></main>
@@ -165,7 +166,19 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
   </div>
   <div class="hint">100% local &middot; offline &middot; seus dados nunca saem do aparelho</div>
 </div>
-<div class="overlay" id="ov" onclick="closeSheet()"></div>
+<div class="sheet" id="menuSheet">
+  <div class="grab"></div>
+  <h2>CONFIGURACOES <button class="close" onclick="closeMenu()">&times;</button></h2>
+  <div style="padding:0 20px 20px">
+    <div id="contaInfo" style="font-size:13px;color:var(--txt);margin-bottom:4px">Conta</div>
+    <div id="contaEmail" style="font-size:12px;color:var(--dim);margin-bottom:18px">-</div>
+    <button onclick="toggleLLM();closeMenu()" style="width:100%;background:var(--surf);border:1px solid var(--line);color:var(--cy);border-radius:12px;padding:13px;font-size:14px;cursor:pointer;margin-bottom:10px;text-align:left">&#129516;&nbsp;&nbsp;Modo IA avancada (offline)</button>
+    <button onclick="openSheet();closeMenu()" style="width:100%;background:var(--surf);border:1px solid var(--line);color:var(--cy);border-radius:12px;padding:13px;font-size:14px;cursor:pointer;margin-bottom:10px;text-align:left">&#129504;&nbsp;&nbsp;Memoria e aprendizado</button>
+    <button onclick="installPWA();closeMenu()" style="width:100%;background:var(--surf);border:1px solid var(--line);color:var(--cy);border-radius:12px;padding:13px;font-size:14px;cursor:pointer;margin-bottom:18px;text-align:left">&#8595;&nbsp;&nbsp;Instalar aplicativo</button>
+    <button onclick="logout()" style="width:100%;background:transparent;border:1px solid rgba(255,107,138,.4);color:#ff6b8a;border-radius:12px;padding:13px;font-size:14px;cursor:pointer">Sair da conta</button>
+  </div>
+</div>
+<div class="overlay" id="ov" onclick="closeSheet();closeMenu()"></div>
 <div class="sheet" id="sheet">
   <div class="grab"></div>
   <h2>MODULO DE APRENDIZADO <button class="close" onclick="closeSheet()">&times;</button></h2>
@@ -238,7 +251,7 @@ async function initCloud(){
           subscribed=true;
           db.collection('knowledge').onSnapshot(function(snap){GLOBAL=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
           db.collection('users').doc(uid).collection('memory').onSnapshot(function(snap){PRIV=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
-          var quem=user.displayName||user.email||'usuario';bubble('Bem-vindo, '+quem+'! Sua memoria privada esta sincronizada.','ia','conta');var np=document.querySelector('.tt p');if(np)np.setAttribute('title','Logado como: '+(user.email||quem));var ci=document.getElementById('contaInfo');if(ci)ci.textContent='Logado como: '+(user.email||quem);
+          var quem=user.displayName||user.email||'usuario';bubble('Bem-vindo, '+quem+'! Sua memoria privada esta sincronizada.','ia','conta');var np=document.querySelector('.tt p');if(np)np.setAttribute('title','Logado como: '+(user.email||quem));var ci=document.getElementById('contaInfo');if(ci)ci.textContent=quem;var ce=document.getElementById('contaEmail');if(ce)ce.textContent=(user.email||'conta Google');
         }
       }else{
         CLOUD=false;uid=null;
@@ -641,6 +654,8 @@ const qEl=document.getElementById('q');
 qEl.addEventListener('input',()=>{qEl.style.height='auto';qEl.style.height=Math.min(qEl.scrollHeight,120)+'px'});
 qEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask()}});
 function teach(){const q=document.getElementById('tq'),a=document.getElementById('ta');if(!q.value.trim()||!a.value.trim())return;addKB(q.value.trim(),a.value.trim(),'manual');bubble('Aprendido: "'+q.value.trim()+'". Novo no no nucleo.','ia','aprendizado');if(window.graph)window.graph.fire();q.value='';a.value='';closeSheet()}
+function openMenu(){document.getElementById('menuSheet').classList.add('open');document.getElementById('ov').classList.add('open')}
+function closeMenu(){document.getElementById('menuSheet').classList.remove('open');document.getElementById('ov').classList.remove('open')}
 function openSheet(){document.getElementById('sheet').classList.add('open');document.getElementById('ov').classList.add('open')}
 function closeSheet(){document.getElementById('sheet').classList.remove('open');document.getElementById('ov').classList.remove('open')}
 function backup(){const b=new Blob([JSON.stringify(KB)],{type:'application/json'});const u=URL.createObjectURL(b),l=document.createElement('a');l.href=u;l.download='lume-ia-memoria.json';l.click();URL.revokeObjectURL(u)}
