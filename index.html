@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#040a16">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://esm.run https://cdn.jsdelivr.net blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.workers.dev https://*.googleapis.com https://*.firebaseio.com https://pt.wikipedia.org https://en.wikipedia.org https://pt.wiktionary.org https://api.duckduckgo.com https://esm.run https://cdn.jsdelivr.net https://huggingface.co https://*.hf.co wss://*.firebaseio.com; frame-ancestors 'none';">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
 <title>LUME IA</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -383,7 +387,7 @@ async function onlineAnswer(q){
 }
 const PERSONAL=/\b(me chame|meu nome|minha idade|eu prefiro|eu moro|eu trabalho|eu sou o|eu sou a|lembre que eu|lembre se|anote que eu)\b/i;function addKB(q,a,o){if(CLOUD){const priv=(o==='manual'&&PERSONAL.test(q));const rec={q,a,o:o||'manual',t:Date.now()};if(priv){db.collection('users').doc(uid).collection('memory').add(rec);}else{db.collection('knowledge').add(rec);}return;}KB.push({id:Date.now()+Math.random(),q,a,o:o||'manual'});store.set('lume_kb',KB);renderKB();if(window.graph)window.graph.rebuild()}
 function delKB(id){if(CLOUD){if(PRIV.find(e=>e.id===id)){db.collection('users').doc(uid).collection('memory').doc(id).delete();}else if(GLOBAL.find(e=>e.id===id)){db.collection('knowledge').doc(id).delete();}return;}KB=KB.filter(e=>e.id!==id);store.set('lume_kb',KB);renderKB();if(window.graph)window.graph.rebuild()}
-function renderKB(){const l=document.getElementById('klist');if(!l)return;l.innerHTML='';const LIST=CLOUD?[...PRIV,...GLOBAL]:KB;LIST.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';d.innerHTML='<span title="'+e.a.replace(/"/g,'&quot;')+'">'+(e.o==='wikipedia'?'\uD83C\uDF10 ':(PRIV&&PRIV.find(p=>p.id===e.id)?'\uD83D\uDD12 ':'\uD83E\uDDE0 '))+e.q+'</span>';const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=(CLOUD?(PRIV.length+GLOBAL.length):KB.length)}
+function renderKB(){const l=document.getElementById('klist');if(!l)return;l.innerHTML='';const LIST=CLOUD?[...PRIV,...GLOBAL]:KB;LIST.slice().reverse().forEach(e=>{const d=document.createElement('div');d.className='kitem';const sp=document.createElement('span');sp.title=String(e.a||'');const ic=(e.o==='wikipedia'||e.o==='web')?'\uD83C\uDF10 ':((PRIV&&PRIV.find(p=>p.id===e.id))?'\uD83D\uDD12 ':'\uD83E\uDDE0 ');sp.textContent=ic+String(e.q||'');const b=document.createElement('button');b.className='del';b.textContent='\u2715';b.onclick=()=>delKB(e.id);d.appendChild(sp);d.appendChild(b);l.appendChild(d)});document.getElementById('nn').textContent=(CLOUD?(PRIV.length+GLOBAL.length):KB.length)}
 
 /* ===== PACOTE DE BASE INICIAL (importavel para todos) ===== */
 const SEED_PACK=[
@@ -670,7 +674,7 @@ async function loadLLM(k){
   document.getElementById('llmBtn').style.color='var(--warn)';
   const w=bubble('Preparando modelo '+m.nome+' ('+m.mb+' na primeira vez, depois offline)...','ia','llm');
   try{
-    const webllm=await import('https://esm.run/@mlc-ai/web-llm');
+    const webllm=await import('https://esm.run/@mlc-ai/web-llm@0.2.79');
     const cfg={initProgressCallback:(p)=>{w.querySelector('.txt').textContent='Carregando '+m.nome+': '+Math.round((p.progress||0)*100)+'%';},appConfig:Object.assign({},webllm.prebuiltAppConfig,{useIndexedDBCache:true})};
     try{
       engine=await webllm.CreateMLCEngine(m.id,cfg);
@@ -712,7 +716,7 @@ async function llmStream(q,el){
     var msg=(e2&&e2.message)?e2.message:String(e2);
     if(/dispose|disposed|destroyed|context lost|device_removed|device lost|requestDevice|GPUAdapter|D3D12|DXGI/i.test(msg)&&LLM_CUR){
       tx.textContent='Reconectando o modelo...';
-      try{const webllm=await import('https://esm.run/@mlc-ai/web-llm');engine=await webllm.CreateMLCEngine(LLM_MODELS[LLM_CUR].id,{initProgressCallback:function(p){tx.textContent='Recarregando IA: '+Math.round((p.progress||0)*100)+'%';}});
+      try{const webllm=await import('https://esm.run/@mlc-ai/web-llm@0.2.79');engine=await webllm.CreateMLCEngine(LLM_MODELS[LLM_CUR].id,{initProgressCallback:function(p){tx.textContent='Recarregando IA: '+Math.round((p.progress||0)*100)+'%';}});
         const r2=await engine.chat.completions.create({messages:msgs,temperature:0.7,max_tokens:700});
         var o2='';try{o2=r2.choices[0].message.content;}catch(_){o2='';}
         if(o2&&o2.trim()){tx.textContent=o2.trim();done();return;}
