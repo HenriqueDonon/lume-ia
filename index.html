@@ -153,7 +153,6 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
 <header>
   <div class="core"></div>
   <div class="tt"><h1>LUME IA</h1><p><span class="dot" id="netdot"></span><span id="nettxt"></span></p></div>
-  <button class="iconbtn" id="logoutBtn" onclick="logout()" title="Sair da conta" style="font-size:14px">&#10162;</button>
   <button class="iconbtn" id="llmBtn" onclick="toggleLLM()" title="Modo IA avancada (LLM offline)">&#129516;</button>
   <button class="iconbtn" id="installBtn" onclick="installPWA()" title="Instalar app" style="display:none;color:var(--ok);border-color:rgba(62,230,168,.4)">&#8595;</button>
   <button class="iconbtn" onclick="openSheet()" title="Aprender / Memoria">&#129504;</button>
@@ -179,11 +178,15 @@ main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--a
   </div>
   <div class="kstat">MEMORIA NEURAL &middot; <b id="nn">0</b> nos &middot; <b id="ns">0</b> sinapses</div>
   <div class="klist" id="klist"></div>
-  <div class="actions">
+  <div class="actions" style="flex-wrap:wrap">
     <button onclick="importPack()">&#11015; Importar base inicial</button>
     <button onclick="backup()">&#8595; Backup</button>
     <button onclick="document.getElementById('restore').click()">&#8593; Restaurar</button>
     <input type="file" id="restore" accept=".json" style="display:none">
+  </div>
+  <div style="padding:0 20px 16px">
+    <div id="contaInfo" style="font-size:11px;color:var(--dim);margin-bottom:8px;text-align:center"></div>
+    <button onclick="logout()" style="width:100%;background:transparent;border:1px solid rgba(255,107,138,.4);color:#ff6b8a;border-radius:12px;padding:12px;font-size:13px;cursor:pointer">Sair da conta</button>
   </div>
 </div>
 <div class="sheet" id="llmSheet">
@@ -235,7 +238,7 @@ async function initCloud(){
           subscribed=true;
           db.collection('knowledge').onSnapshot(function(snap){GLOBAL=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
           db.collection('users').doc(uid).collection('memory').onSnapshot(function(snap){PRIV=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});renderKB();if(window.graph)window.graph.rebuild();});
-          var quem=user.displayName||user.email||'usuario';bubble('Bem-vindo, '+quem+'! Sua memoria privada esta sincronizada.','ia','conta');var np=document.querySelector('.tt p');if(np)np.setAttribute('title','Logado como: '+(user.email||quem));var lb=document.getElementById('logoutBtn');if(lb)lb.title='Sair ('+quem+')';
+          var quem=user.displayName||user.email||'usuario';bubble('Bem-vindo, '+quem+'! Sua memoria privada esta sincronizada.','ia','conta');var np=document.querySelector('.tt p');if(np)np.setAttribute('title','Logado como: '+(user.email||quem));var ci=document.getElementById('contaInfo');if(ci)ci.textContent='Logado como: '+(user.email||quem);
         }
       }else{
         CLOUD=false;uid=null;
