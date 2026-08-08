@@ -82,6 +82,19 @@ main{position:relative;z-index:2;flex:1;overflow-y:auto;overflow-x:hidden;scroll
 .actions button:hover{border-color:var(--cy)}
 main::-webkit-scrollbar,.klist::-webkit-scrollbar{width:5px}
 main::-webkit-scrollbar-thumb,.klist::-webkit-scrollbar-thumb{background:var(--az);border-radius:3px}
+
+@media(max-width:480px){
+  header{gap:8px;padding-left:12px;padding-right:12px}
+  .iconbtn{width:34px;height:34px;font-size:14px}
+  .tt h1{font-size:14px}
+  .tt p{font-size:10px}
+  .core{width:26px;height:26px}
+}
+@media(max-width:360px){
+  header{gap:6px}
+  .iconbtn{width:31px;height:31px}
+  .tt p{display:none}
+}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ===== TELA DE LOGIN ===== */
